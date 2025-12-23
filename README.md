@@ -2,202 +2,450 @@
 
 An AI-powered tutor that helps high school students learn calculus. Ask questions in plain English and get step-by-step explanations with beautiful mathematical notation.
 
-## What Does This Do?
+---
 
-This is a **Retrieval-Augmented Generation (RAG)** system - it combines a knowledge base of calculus materials with AI to give accurate, helpful answers. Think of it as a smart tutor that:
+## What Is This?
 
-- Answers your calculus questions with clear explanations
-- Shows math formulas as proper notation (not ugly code)
-- Detects when you're missing prerequisite knowledge and helps fill gaps
-- Routes simple questions to fast AI, complex questions to powerful AI
+Imagine having a personal math tutor available 24/7. That's what this app does!
 
-## Example Questions You Can Ask
+**RAG** stands for "Retrieval-Augmented Generation" - a fancy way of saying the AI looks up information from textbooks before answering your question. This makes answers more accurate and reliable.
 
-- "What is a derivative?"
-- "Explain the chain rule step by step"
-- "How do I solve x² + 5x + 6 = 0?"
-- "What is the limit definition of a derivative?"
-- "Prove that the derivative of sin(x) is cos(x)"
+**What makes it special:**
+- Answers calculus questions with clear, step-by-step explanations
+- Shows math formulas beautifully (like in a textbook, not ugly code)
+- Detects when you're missing foundational knowledge and helps fill gaps
+- Uses smart routing: simple questions → fast AI, complex proofs → powerful AI
 
 ---
 
-## Requirements
+## Try These Example Questions
 
-Before starting, you need to install these tools on your computer:
+Once set up, you can ask things like:
 
-| Tool | What It Does | Install Link |
-|------|--------------|--------------|
-| **Python 3.10+** | Runs the application | [python.org](https://www.python.org/downloads/) |
-| **Docker** | Runs the database | [docker.com](https://docs.docker.com/get-docker/) |
-| **Ollama** | Runs AI models locally | [ollama.com](https://ollama.com/download) |
+| Simple Questions | Complex Questions |
+|------------------|-------------------|
+| "What is a derivative?" | "Prove the chain rule" |
+| "Explain the power rule" | "Derive the derivative of sin(x) from first principles" |
+| "How do I factor x² + 5x + 6?" | "When should I use integration by parts vs substitution?" |
 
-### How to Check If You Have Them
+---
 
-Open a terminal and run:
+## How the AI Routing Works
+
+The app automatically picks the best AI model for your question:
+
+| Your Question Type | AI Model Used | Speed |
+|--------------------|---------------|-------|
+| Simple definitions | Qwen2-Math 1.5B (runs on your computer) | ⚡ Very fast |
+| Standard problems | Qwen2-Math 7B (runs on your computer) | 🔄 Medium |
+| Complex proofs | DeepSeek R1 671B (runs in the cloud) | 🧠 Most powerful |
+
+**Don't have a powerful computer?** No problem! You can skip the 7B model and use cloud AI for complex questions instead.
+
+---
+
+## What You'll Need
+
+Before starting, install these free tools:
+
+### For All Users
+
+| Tool | What It Does | How to Get It |
+|------|--------------|---------------|
+| **Python** | Runs the app | [Download Python 3.10+](https://www.python.org/downloads/) - check "Add to PATH" during install |
+| **Docker Desktop** | Runs the database | [Download Docker](https://www.docker.com/products/docker-desktop/) - just install and run it |
+| **Ollama** | Runs AI models | [Download Ollama](https://ollama.com/download) - install and it runs automatically |
+
+### How to Verify Everything Is Installed
+
+Open a terminal (PowerShell on Windows, Terminal on Mac/Linux) and run these commands:
 
 ```bash
-python3 --version    # Should show Python 3.10 or higher
-docker --version     # Should show Docker version
-ollama --version     # Should show Ollama version
+python --version
 ```
+✅ You should see: `Python 3.10.x` or higher
+
+```bash
+docker --version
+```
+✅ You should see: `Docker version 24.x.x` or similar
+
+```bash
+ollama --version
+```
+✅ You should see: `ollama version 0.x.x`
+
+**Something not working?** Make sure you restarted your terminal after installing.
 
 ---
 
-## Installation (Step by Step)
+## Installation Guide
 
-### Step 1: Clone This Repository
+Choose your operating system:
+
+- [Windows Installation](#windows-installation)
+- [Mac/Linux Installation](#maclinux-installation)
+
+---
+
+## Windows Installation
+
+### Step 1: Download the Project
+
+Open **PowerShell** (search for it in the Start menu) and run:
+
+```powershell
+git clone https://github.com/VIPULKAM/Calculus_RAG.git
+cd Calculus_RAG
+```
+
+**Don't have git?** [Download Git for Windows](https://git-scm.com/download/win) first.
+
+---
+
+### Step 2: Download AI Models
+
+These are the "brains" of the tutor. Run each command and wait for it to complete:
+
+```powershell
+ollama pull mxbai-embed-large
+```
+⏱️ Wait for download (~670 MB)
+
+```powershell
+ollama pull qwen2-math:1.5b
+```
+⏱️ Wait for download (~1 GB)
+
+```powershell
+ollama pull qwen2-math:7b
+```
+⏱️ Wait for download (~4 GB) - **Skip this if your computer has less than 16GB RAM**
+
+✅ **Verify:** Run `ollama list` - you should see the models listed.
+
+---
+
+### Step 3: Install uv (Fast Package Manager)
+
+This tool installs Python packages much faster than the default method:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Important:** Close PowerShell completely and open a new one.
+
+✅ **Verify:** Run `uv --version` - you should see a version number.
+
+---
+
+### Step 4: Set Up Python Environment
+
+```powershell
+uv venv .venv
+```
+
+```powershell
+.venv\Scripts\activate
+```
+
+✅ **Verify:** Your prompt should now start with `(.venv)`
+
+```powershell
+uv pip install -e ".[dev]"
+```
+
+⏱️ Wait for packages to install (1-2 minutes)
+
+---
+
+### Step 5: Start the Database
+
+Make sure Docker Desktop is running (check your system tray), then:
+
+```powershell
+docker-compose up -d postgres
+```
+
+✅ **Verify:** Run `docker ps` - you should see `calculus_rag_postgres` running.
+
+---
+
+### Step 6: Configure Settings
+
+```powershell
+copy .env.example .env
+```
+
+The default settings work out of the box. See [Cloud Setup](#cloud-setup-optional) if you want to enable cloud AI.
+
+---
+
+### Step 7: Load the Knowledge Base
+
+This reads the calculus textbooks and prepares them for searching:
+
+```powershell
+python scripts/ingest_pdfs.py
+```
+
+⏱️ This takes 5-15 minutes. You'll see progress messages.
+
+✅ **Verify:** You should see "Ingestion complete" with a count of chunks created.
+
+---
+
+### Step 8: Start the App!
+
+```powershell
+streamlit run app.py
+```
+
+🎉 **Your browser should open automatically to http://localhost:8501**
+
+If not, open your browser and go to that address manually.
+
+---
+
+## Mac/Linux Installation
+
+### Step 1: Download the Project
+
+Open **Terminal** and run:
 
 ```bash
 git clone https://github.com/VIPULKAM/Calculus_RAG.git
 cd Calculus_RAG
 ```
 
-### Step 2: Download the AI Models
+---
 
-Ollama needs to download the AI models (this may take a few minutes):
+### Step 2: Download AI Models
+
+These are the "brains" of the tutor. Run each command and wait for it to complete:
 
 ```bash
-# The math-specialized AI (small and fast)
-ollama pull qwen2-math:1.5b
-
-# The math-specialized AI (larger and smarter)
-ollama pull qwen2-math:7b
-
-# The embedding model (converts text to numbers for search)
 ollama pull mxbai-embed-large
 ```
-
-**Note:** These downloads are large (several GB total). Make sure you have enough disk space and a stable internet connection.
-
-### Step 3: Create a Virtual Environment
-
-A virtual environment keeps this project's packages separate from your system:
+⏱️ Wait for download (~670 MB)
 
 ```bash
-# Create the virtual environment
-python3 -m venv .venv
+ollama pull qwen2-math:1.5b
+```
+⏱️ Wait for download (~1 GB)
 
-# Activate it (you'll need to do this every time you open a new terminal)
+```bash
+ollama pull qwen2-math:7b
+```
+⏱️ Wait for download (~4 GB) - **Skip this if your computer has less than 16GB RAM**
+
+✅ **Verify:** Run `ollama list` - you should see the models listed.
+
+---
+
+### Step 3: Install uv (Fast Package Manager)
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+**Important:** Close Terminal and open a new one, OR run:
+```bash
+source $HOME/.local/bin/env
+```
+
+✅ **Verify:** Run `uv --version` - you should see a version number.
+
+---
+
+### Step 4: Set Up Python Environment
+
+```bash
+uv venv .venv
+```
+
+```bash
 source .venv/bin/activate
 ```
 
-**How do you know it worked?** Your terminal prompt should now start with `(.venv)`.
-
-### Step 4: Install Python Packages
+✅ **Verify:** Your prompt should now start with `(.venv)`
 
 ```bash
-# Option A: Using pip (standard)
-pip install -e ".[dev]"
-
-# Option B: Using uv (faster, if you have it)
-~/.local/bin/uv pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 ```
 
-This installs all the required Python libraries. It may take a few minutes.
+⏱️ Wait for packages to install (1-2 minutes)
+
+---
 
 ### Step 5: Start the Database
 
-The app uses PostgreSQL with pgvector to store and search the knowledge base:
+Make sure Docker Desktop is running, then:
 
 ```bash
-# Start the database in the background
 docker-compose up -d postgres
 ```
 
-**How do you know it worked?** Run `docker ps` and you should see a container named `calculus_rag_postgres`.
+✅ **Verify:** Run `docker ps` - you should see `calculus_rag_postgres` running.
 
-### Step 6: Configure the Environment
+---
+
+### Step 6: Configure Settings
 
 ```bash
-# Copy the example configuration file
 cp .env.example .env
 ```
 
-The default settings work out of the box. You only need to edit `.env` if you want to use cloud AI models (see [SETUP_CLOUD.md](SETUP_CLOUD.md)).
+The default settings work out of the box. See [Cloud Setup](#cloud-setup-optional) if you want to enable cloud AI.
+
+---
 
 ### Step 7: Load the Knowledge Base
 
-This processes the PDF textbooks and stores them in the database:
+This reads the calculus textbooks and prepares them for searching:
 
 ```bash
 python scripts/ingest_pdfs.py
 ```
 
-**What to expect:** This takes 5-15 minutes depending on your computer. You'll see progress messages as each PDF is processed.
+⏱️ This takes 5-15 minutes. You'll see progress messages.
 
-### Step 8: Run the App!
+✅ **Verify:** You should see "Ingestion complete" with a count of chunks created.
+
+---
+
+### Step 8: Start the App!
 
 ```bash
-# Start the web interface
 ./run_app.sh
 ```
 
 Or if that doesn't work:
-
 ```bash
 streamlit run app.py
 ```
 
-**Open your browser** and go to: **http://localhost:8501**
+🎉 **Your browser should open automatically to http://localhost:8501**
+
+---
+
+## Cloud Setup (Optional)
+
+**Why use cloud AI?**
+- Your computer has less than 16GB RAM
+- You want better answers for complex proofs
+- You skipped downloading the 7B model
+
+**What is it?**
+DeepSeek R1 is a powerful 671 billion parameter AI that runs on Ollama's cloud servers. It's much smarter than the local models for complex math.
+
+### How to Enable Cloud AI
+
+**Step 1:** Create a free Ollama account at [ollama.com](https://ollama.com)
+
+**Step 2:** Log in from your terminal:
+```bash
+ollama login
+```
+Follow the prompts to authenticate.
+
+**Step 3:** Edit your `.env` file and change:
+```
+CLOUD_LLM_ENABLED=true
+```
+
+**Step 4:** Restart the app
+
+That's it! Complex questions will now be routed to DeepSeek R1 in the cloud.
 
 ---
 
 ## Using the App
 
+Once the app is running:
+
 1. **Type your question** in the chat box at the bottom
-2. **View the answer** - math formulas render as beautiful notation
-3. **Check sources** - click "View Sources" to see which textbooks were used
-4. **Adjust settings** - use the sidebar to change AI creativity level
+2. **Wait for the answer** - it may take a few seconds, especially for the first question
+3. **Read the explanation** - math formulas appear beautifully formatted
+4. **Click "View Sources"** to see which textbook sections were used
+5. **Ask follow-up questions** - the AI remembers your conversation
+
+**Tip:** The first question is always slower because the AI models need to load into memory.
 
 ---
 
 ## Troubleshooting
 
-### "Ollama not running" or connection errors
+### "Ollama not running"
 
-Make sure Ollama is running:
+**Windows:** Look for Ollama in the system tray. If it's not there, search for "Ollama" in the Start menu and run it.
 
-```bash
-# Check if Ollama is running
-curl http://localhost:11434/api/tags
+**Mac/Linux:** Run `ollama serve` in a separate terminal.
 
-# If not, start it
-ollama serve
-```
+---
 
 ### "Database connection failed"
 
-Make sure PostgreSQL is running:
-
+Make sure Docker Desktop is running, then:
 ```bash
-# Check if the container is running
-docker ps
-
-# If not, start it
 docker-compose up -d postgres
 ```
 
+---
+
 ### "Model not found"
 
-Make sure you downloaded the models:
-
+Check which models you have:
 ```bash
-ollama list   # Should show qwen2-math:1.5b, qwen2-math:7b, mxbai-embed-large
+ollama list
 ```
+
+You need at least: `mxbai-embed-large` and `qwen2-math:1.5b`
+
+---
+
+### "Out of memory" or computer freezing
+
+Your computer doesn't have enough RAM for the 7B model. Solutions:
+
+1. Close other applications
+2. Skip the 7B model and enable cloud AI (see [Cloud Setup](#cloud-setup-optional))
+3. Restart your computer and try again
+
+---
 
 ### App is slow on first question
 
-This is normal! The first question takes longer because the AI models need to load into memory. Subsequent questions will be faster.
+This is normal! The AI models need to load into memory. Subsequent questions will be faster.
 
-### Math formulas look like code
+---
 
-Try refreshing the browser page. If that doesn't work, clear your browser cache.
+### Math formulas look like code (raw LaTeX)
+
+1. Refresh your browser page
+2. If that doesn't work, clear your browser cache
+3. Try a different browser (Chrome works best)
+
+---
+
+### "uv: command not found"
+
+Close your terminal completely and open a new one. If still not working:
+
+**Windows:** Run the install command again in a new PowerShell window.
+
+**Mac/Linux:** Run `source $HOME/.local/bin/env`
 
 ---
 
 ## Running Tests (For Developers)
 
 ```bash
+# Make sure virtual environment is activated first
+source .venv/bin/activate  # Mac/Linux
+.venv\Scripts\activate     # Windows
+
 # Run all tests
 pytest
 
@@ -215,18 +463,18 @@ mypy src
 
 ```
 Calculus_RAG/
-├── app.py                 # Streamlit web interface
+├── app.py                 # Web interface (Streamlit)
 ├── scripts/               # Utility scripts
-│   ├── ingest_pdfs.py     # Load PDFs into database
+│   ├── ingest_pdfs.py     # Load textbooks into database
 │   └── interactive_rag.py # Terminal chat interface
 ├── src/calculus_rag/      # Main source code
-│   ├── config.py          # Settings and configuration
-│   ├── embeddings/        # Text-to-vector conversion
-│   ├── vectorstore/       # Database operations
-│   ├── llm/               # AI model integration
-│   ├── rag/               # Main question-answering logic
-│   └── prerequisites/     # Topic dependency tracking
-├── knowledge_content/     # PDF textbooks and materials
+│   ├── config.py          # Settings
+│   ├── embeddings/        # Text search
+│   ├── vectorstore/       # Database
+│   ├── llm/               # AI models & routing
+│   ├── rag/               # Question answering
+│   └── prerequisites/     # Topic dependencies
+├── knowledge_content/     # Calculus textbooks (PDFs)
 └── tests/                 # Test suite
 ```
 
@@ -236,20 +484,13 @@ Calculus_RAG/
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| AI Models | Qwen2-Math 1.5B/7B | Answer math questions |
-| Embeddings | mxbai-embed-large | Search the knowledge base |
+| Local AI | Qwen2-Math 1.5B/7B | Fast answers for simple questions |
+| Cloud AI | DeepSeek R1 671B | Powerful answers for complex proofs |
+| Search | mxbai-embed-large | Find relevant textbook sections |
 | Database | PostgreSQL + pgvector | Store and search documents |
 | PDF Processing | pymupdf4llm | Extract text from textbooks |
 | Web Interface | Streamlit | User-friendly chat UI |
-| API | FastAPI | Backend endpoints |
-
----
-
-## Optional: Cloud AI Models
-
-For complex questions (like proofs), you can use powerful cloud AI instead of running the large 7B model locally. This is useful if your computer is slow or has limited RAM.
-
-See [SETUP_CLOUD.md](SETUP_CLOUD.md) for setup instructions.
+| Package Manager | uv | Fast dependency installation |
 
 ---
 
@@ -261,6 +502,6 @@ MIT - Feel free to use, modify, and distribute.
 
 ## Need Help?
 
-- Check the [Troubleshooting](#troubleshooting) section above
-- Open an issue on GitHub
-- Make sure all prerequisites are installed and running
+1. Check the [Troubleshooting](#troubleshooting) section above
+2. Make sure all prerequisites are installed and running
+3. Open an issue on [GitHub](https://github.com/VIPULKAM/Calculus_RAG/issues)
