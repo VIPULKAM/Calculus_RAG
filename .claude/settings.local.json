@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(chmod:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(python scripts/test_pgvector_integration.py:*)",
+      "Bash(/home/vipul/Calculus_RAG/.venv/bin/pip install:*)",
+      "Bash(cat:*)"
+    ]
+  }
+}
