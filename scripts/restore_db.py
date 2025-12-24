@@ -3,16 +3,21 @@
 Fast restore of the knowledge base using parallel pg_restore.
 
 Usage:
-    python scripts/restore_db.py backups/backup_2025-12-23.dump
+    python scripts/restore_db.py backups/backup_2025-12-23.dump.gz
     python scripts/restore_db.py backups/backup_2025-12-23.dump --jobs 8
+
+Supports both .dump and .dump.gz (gzipped) backup files.
 
 WARNING: This will REPLACE all existing data in the knowledge base!
 """
 
 import argparse
+import gzip
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -33,7 +38,7 @@ def restore_database(backup_file: str, jobs: int = None, force: bool = False) ->
     Fast parallel restore from binary dump.
 
     Args:
-        backup_file: Path to .dump file
+        backup_file: Path to .dump or .dump.gz file
         jobs: Number of parallel jobs
         force: Skip confirmation prompt
 
@@ -53,17 +58,19 @@ def restore_database(backup_file: str, jobs: int = None, force: bool = False) ->
         print(f"❌ Backup file not found: {backup_file}")
         print(f"\n📚 Available backups:")
         backup_dir = Path(__file__).parent.parent / "backups"
-        for b in sorted(backup_dir.glob("*.dump"), key=lambda f: f.stat().st_mtime, reverse=True)[:5]:
+        backups = list(backup_dir.glob("*.dump")) + list(backup_dir.glob("*.dump.gz"))
+        for b in sorted(backups, key=lambda f: f.stat().st_mtime, reverse=True)[:5]:
             print(f"   • {b.name}")
         return False
 
     size_mb = backup_path.stat().st_size / 1024 / 1024
+    is_gzipped = backup_path.suffix == ".gz"
 
     print(f"\n{'='*60}")
     print(f"Fast Database Restore (Parallel)")
     print(f"{'='*60}\n")
     print(f"📄 Backup: {backup_path.name}")
-    print(f"📊 Size: {size_mb:.2f} MB")
+    print(f"📊 Size: {size_mb:.2f} MB" + (" (gzipped)" if is_gzipped else ""))
     print(f"📦 Target: {settings.postgres_db}")
     print(f"🖥️  Parallel jobs: {jobs}")
 
@@ -76,6 +83,19 @@ def restore_database(backup_file: str, jobs: int = None, force: bool = False) ->
             return False
 
     env = {"PGPASSWORD": settings.postgres_password}
+    temp_file = None
+
+    # Decompress if gzipped
+    if is_gzipped:
+        print(f"\n⏳ Decompressing backup...")
+        temp_file = tempfile.NamedTemporaryFile(suffix=".dump", delete=False)
+        with gzip.open(backup_path, 'rb') as f_in:
+            shutil.copyfileobj(f_in, temp_file)
+        temp_file.close()
+        restore_path = Path(temp_file.name)
+        print(f"   Decompressed: {restore_path.stat().st_size / 1024 / 1024:.2f} MB")
+    else:
+        restore_path = backup_path
 
     # Step 1: Drop and recreate the table
     print(f"\n⏳ Step 1/2: Preparing database...")
@@ -106,7 +126,7 @@ def restore_database(backup_file: str, jobs: int = None, force: bool = False) ->
         "--no-acl",
         "--clean",                # Drop objects before recreating
         "--if-exists",            # Don't error if objects don't exist
-        str(backup_path),
+        str(restore_path),
     ]
 
     try:
@@ -158,11 +178,15 @@ def restore_database(backup_file: str, jobs: int = None, force: bool = False) ->
     except Exception as e:
         print(f"❌ Error: {e}")
         return False
+    finally:
+        # Cleanup temp file if we decompressed
+        if temp_file and Path(temp_file.name).exists():
+            Path(temp_file.name).unlink()
 
 
 def main():
     parser = argparse.ArgumentParser(description="Fast database restore")
-    parser.add_argument("backup", help="Backup file (.dump)")
+    parser.add_argument("backup", help="Backup file (.dump or .dump.gz)")
     parser.add_argument("-j", "--jobs", type=int, help=f"Parallel jobs (default: {get_cpu_count()})")
     parser.add_argument("-f", "--force", action="store_true", help="Skip confirmation")
     args = parser.parse_args()
