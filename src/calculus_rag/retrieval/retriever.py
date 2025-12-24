@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from calculus_rag.embeddings.base import BaseEmbedder
+from calculus_rag.utils.text_cleanup import cleanup_math_text
 from calculus_rag.vectorstore.base import BaseVectorStore, QueryResult
 
 
@@ -66,6 +67,7 @@ class Retriever:
         query: str,
         n_results: int = 5,
         filters: dict[str, Any] | None = None,
+        min_score: float = 0.45,
     ) -> list[RetrievalResult]:
         """
         Retrieve relevant document chunks for a query.
@@ -74,6 +76,9 @@ class Retriever:
             query: The user's question or search query.
             n_results: Maximum number of results to return.
             filters: Optional metadata filters (e.g., {"topic": "limits"}).
+            min_score: Minimum similarity score threshold (0-1). Chunks below
+                this score are filtered out to reduce hallucination from
+                irrelevant context. Default is 0.45.
 
         Returns:
             list[RetrievalResult]: Retrieved chunks sorted by relevance.
@@ -87,25 +92,27 @@ class Retriever:
         # Embed the query
         query_embedding = self.embedder.embed(query)
 
-        # Search the vector store
+        # Search the vector store (get extra results to account for filtering)
         results = await self.vector_store.query(
             query_embedding=query_embedding,
-            n_results=n_results,
+            n_results=n_results * 2,
             where=filters,
         )
 
-        # Convert to RetrievalResult objects
+        # Convert to RetrievalResult objects, clean content, and filter by minimum score
         retrieval_results = [
             RetrievalResult(
-                content=result.content,
+                content=cleanup_math_text(result.content),
                 score=result.score,
                 metadata=result.metadata,
                 chunk_id=result.id,
             )
             for result in results
+            if result.score >= min_score
         ]
 
-        return retrieval_results
+        # Return top n_results after filtering
+        return retrieval_results[:n_results]
 
     async def retrieve_by_topic(
         self,

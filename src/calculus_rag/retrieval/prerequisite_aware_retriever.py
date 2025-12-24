@@ -15,6 +15,7 @@ from calculus_rag.prerequisites.detector import GapDetector
 from calculus_rag.prerequisites.graph import PrerequisiteGraph
 from calculus_rag.prerequisites.topics import build_prerequisite_graph, get_topic_info
 from calculus_rag.retrieval.retriever import Retriever, RetrievalResult
+from calculus_rag.utils.text_cleanup import cleanup_math_text
 from calculus_rag.vectorstore.base import BaseVectorStore
 from calculus_rag.vectorstore.pgvector_store import PgVectorStore
 
@@ -139,6 +140,9 @@ class PrerequisiteAwareRetriever:
         # Step 1: Detect topic from query
         detected_topic = self.detector.analyze_query(query)
 
+        # Minimum score threshold to filter out irrelevant chunks
+        min_score = 0.45
+
         # Step 2: Get main results (hybrid or semantic search)
         if self.use_hybrid_search and isinstance(self.vector_store, PgVectorStore):
             # Use hybrid search for better keyword + semantic matching
@@ -146,25 +150,28 @@ class PrerequisiteAwareRetriever:
             hybrid_results = await self.vector_store.hybrid_search(
                 query_text=query,
                 query_embedding=query_embedding,
-                n_results=n_results,
+                n_results=n_results * 2,  # Get extra to account for filtering
                 semantic_weight=self.semantic_weight,
                 where=filters,
             )
+            # Filter by minimum score, clean content, and convert to RetrievalResult
             main_results = [
                 RetrievalResult(
-                    content=r.content,
+                    content=cleanup_math_text(r.content),
                     score=r.score,
                     metadata=r.metadata,
                     chunk_id=r.id,
                 )
                 for r in hybrid_results
-            ]
+                if r.score >= min_score
+            ][:n_results]
         else:
-            # Fallback to standard semantic search
+            # Fallback to standard semantic search (already has min_score filter)
             main_results = await self.base_retriever.retrieve(
                 query=query,
                 n_results=n_results,
                 filters=filters,
+                min_score=min_score,
             )
 
         prerequisites_used = []
