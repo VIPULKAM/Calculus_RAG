@@ -9,9 +9,13 @@ import asyncio
 import sys
 from pathlib import Path
 
+import asyncpg
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from calculus_rag.config import get_settings
+
+
 from calculus_rag.embeddings.bge_embedder import BGEEmbedder
 from calculus_rag.embeddings.ollama_embedder import OllamaEmbedder
 from calculus_rag.llm.model_router import ComplexityLevel, ModelRouter
@@ -19,6 +23,17 @@ from calculus_rag.llm.ollama_llm import OllamaLLM
 from calculus_rag.rag.pipeline import RAGPipeline
 from calculus_rag.retrieval.retriever import Retriever
 from calculus_rag.vectorstore.pgvector_store import PgVectorStore
+
+
+async def get_chunk_count(settings) -> int:
+    """Get the current chunk count from database."""
+    try:
+        conn = await asyncpg.connect(settings.postgres_dsn)
+        count = await conn.fetchval("SELECT COUNT(*) FROM calculus_knowledge")
+        await conn.close()
+        return count or 0
+    except Exception:
+        return 0
 
 
 # Sample Pre-Calculus and Calculus Content
@@ -206,8 +221,9 @@ async def setup_rag() -> tuple:
     )
     await vector_store.initialize()
 
-    # Using existing knowledge base (6,835 chunks from ingested PDFs + Khan Academy)
-    print(f"   ✓ Connected to knowledge base with 6,835 chunks")
+    # Get dynamic chunk count
+    chunk_count = await get_chunk_count(settings)
+    print(f"   ✓ Connected to knowledge base with {chunk_count:,} chunks")
 
     # Initialize Smart Model Router
     print("   Setting up Smart Model Router...")
@@ -252,28 +268,28 @@ async def setup_rag() -> tuple:
     )
 
     print("✅ RAG System Ready with Smart Routing!\n")
-    return rag_pipeline, router, vector_store
+    return rag_pipeline, router, vector_store, chunk_count
 
 
 async def interactive_session():
     """Run interactive Q&A session."""
-    rag_pipeline, router, vector_store = await setup_rag()
+    rag_pipeline, router, vector_store, chunk_count = await setup_rag()
 
     print("=" * 80)
-    print("Interactive Calculus RAG - Full Knowledge Base (6,835 Chunks)")
+    print(f"Interactive Calculus RAG - Full Knowledge Base ({chunk_count:,} Chunks)")
     print("=" * 80)
     print("\n🤖 Smart Routing Enabled:")
     print("   • Simple questions → Fast model (qwen2-math:1.5b)")
     print("   • Complex questions → Powerful model (qwen2-math:7b)")
     print("   • Automatic fallback for reliability")
-    print("\n📚 Knowledge Base (17 PDFs + 44 Khan Academy):")
+    print("\n📚 Knowledge Base:")
     print("   • Paul's Online Notes (Algebra, Calculus)")
     print("   • Calculus Cheat Sheets (Limits, Derivatives, Integrals)")
     print("   • Khan Academy Video Summaries")
     print("   • Study Guides & Reference Materials")
     print("\n💡 Tips:")
     print("   • Type 'quit' or 'exit' to stop")
-    print("   • Ask any calculus or pre-calculus question")
+    print("   • Type 'stats' to see database statistics")
     print("   • Examples: 'Explain chain rule', 'Solve x^2 + 5x + 6 = 0'")
     print("=" * 80)
 
@@ -294,9 +310,8 @@ async def interactive_session():
 
             if question.lower() == "stats":
                 print("\n📊 Knowledge Base Statistics:")
-                print("   • Total chunks: 6,835")
-                print("   • PDFs: 17 (OpenStax + Paul's Online Notes)")
-                print("   • Khan Academy: 44 video summaries")
+                print(f"   • Total chunks: {chunk_count:,}")
+                print("   • Sources: PDFs + Khan Academy video summaries")
                 print("   • Topics: Algebra, Trig, Limits, Derivatives, Integrals")
                 continue
 

@@ -110,6 +110,7 @@ Remember: Your goal is to help students understand, not just provide answers."""
         filters: dict | None = None,
         temperature: float = 0.7,
         detect_prerequisites: bool = False,
+        conversation_history: list[dict] | None = None,
     ) -> RAGResponse:
         """
         Answer a question using retrieval-augmented generation.
@@ -119,6 +120,8 @@ Remember: Your goal is to help students understand, not just provide answers."""
             filters: Optional filters for retrieval (e.g., {"topic": "limits"}).
             temperature: LLM temperature for generation (0-1).
             detect_prerequisites: Whether to detect missing prerequisites.
+            conversation_history: Optional list of previous messages for context.
+                Each message should have 'role' ('user' or 'assistant') and 'content'.
 
         Returns:
             RAGResponse: The answer with sources and metadata.
@@ -158,11 +161,20 @@ Remember: Your goal is to help students understand, not just provide answers."""
         # Step 3: Generate answer using LLM
         messages = [
             LLMMessage(role="system", content=self.system_prompt),
+        ]
+
+        # Add conversation history for context (last N exchanges)
+        if conversation_history:
+            for msg in conversation_history[-10:]:  # Keep last 5 Q&A pairs (10 messages)
+                messages.append(LLMMessage(role=msg["role"], content=msg["content"]))
+
+        # Add current question with context
+        messages.append(
             LLMMessage(
                 role="user",
                 content=self._build_user_prompt(question, context),
             ),
-        ]
+        )
 
         llm_response = self.llm.generate(messages, temperature=temperature)
         answer = llm_response.content

@@ -68,6 +68,66 @@ def get_or_create_eventloop():
         return loop
 
 
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_knowledge_base_stats():
+    """Get dynamic stats from the database."""
+    import asyncpg
+
+    async def fetch_stats():
+        settings = get_settings()
+        try:
+            conn = await asyncpg.connect(settings.postgres_dsn)
+
+            # Total chunks
+            total = await conn.fetchval("SELECT COUNT(*) FROM calculus_knowledge")
+
+            # Count by source type
+            sources = await conn.fetch("""
+                SELECT
+                    CASE
+                        WHEN metadata->>'source' LIKE '%.pdf' THEN 'pdf'
+                        WHEN metadata->>'source' LIKE '%.md' THEN 'markdown'
+                        ELSE 'other'
+                    END as source_type,
+                    COUNT(*) as count
+                FROM calculus_knowledge
+                GROUP BY source_type
+            """)
+
+            # Count unique sources
+            unique_sources = await conn.fetchval("""
+                SELECT COUNT(DISTINCT metadata->>'source') FROM calculus_knowledge
+            """)
+
+            await conn.close()
+
+            pdf_count = 0
+            md_count = 0
+            for row in sources:
+                if row['source_type'] == 'pdf':
+                    pdf_count = row['count']
+                elif row['source_type'] == 'markdown':
+                    md_count = row['count']
+
+            return {
+                'total': total or 0,
+                'pdf_chunks': pdf_count,
+                'markdown_chunks': md_count,
+                'unique_sources': unique_sources or 0,
+            }
+        except Exception:
+            # Return defaults if DB not available
+            return {
+                'total': 0,
+                'pdf_chunks': 0,
+                'markdown_chunks': 0,
+                'unique_sources': 0,
+            }
+
+    loop = get_or_create_eventloop()
+    return loop.run_until_complete(fetch_stats())
+
+
 def fix_latex_rendering(text: str) -> str:
     r"""
     Convert LaTeX delimiters from \[ \] to $$ $$ for Streamlit rendering.
@@ -267,10 +327,14 @@ def initialize_rag_system():
     return rag_pipeline, router, vector_store, loop
 
 
-def query_rag_sync(rag_pipeline, question, temperature, loop):
+def query_rag_sync(rag_pipeline, question, temperature, loop, conversation_history=None):
     """Query the RAG system synchronously (wrapper for async)."""
     async def _query():
-        return await rag_pipeline.query(question=question, temperature=temperature)
+        return await rag_pipeline.query(
+            question=question,
+            temperature=temperature,
+            conversation_history=conversation_history,
+        )
 
     return loop.run_until_complete(_query())
 
@@ -305,17 +369,22 @@ def main():
         st.divider()
 
         st.header("📚 Knowledge Base")
-        st.info(
-            """
-            **17 PDFs + 44 Khan Academy Videos:**
-            - Paul's Online Notes (Algebra, Calculus)
-            - Calculus Cheat Sheets & Practice Problems
-            - Khan Academy Video Summaries
-            - Study Guides & Reference Materials
+        # Get dynamic stats from database
+        stats = get_knowledge_base_stats()
+        if stats['total'] > 0:
+            st.info(
+                f"""
+                **{stats['unique_sources']} Sources Loaded:**
+                - Paul's Online Notes (Algebra, Calculus)
+                - Calculus Cheat Sheets & Practice Problems
+                - Khan Academy Video Summaries
+                - Study Guides & Reference Materials
 
-            **Total:** 6,835 chunks
-            """
-        )
+                **Total:** {stats['total']:,} chunks
+                """
+            )
+        else:
+            st.warning("⚠️ Knowledge base not loaded. Run ingestion first.")
 
         st.divider()
 
@@ -365,17 +434,43 @@ def main():
 
         st.divider()
 
+        st.header("💬 Conversation")
+        msg_count = len(st.session_state.get("messages", []))
+        if msg_count > 0:
+            st.success(f"**Memory Active:** {msg_count} messages\n\nI remember our conversation!")
+        else:
+            st.info("Start chatting - I'll remember context!")
+
+        st.divider()
+
         st.header("💡 Example Questions")
-        examples = [
-            "What is a derivative?",
-            "Explain the chain rule",
-            "Solve x² + 5x + 6 = 0",
-            "What is the limit definition?",
-            "How do I integrate by parts?",
-        ]
-        for example in examples:
-            if st.button(example, key=f"example_{example}", use_container_width=True):
-                st.session_state.example_question = example
+        st.caption("Click any question to try it:")
+
+        # Organized by difficulty/topic
+        example_categories = {
+            "📗 Basics": [
+                "What is a derivative?",
+                "Explain limits with an example",
+            ],
+            "📘 How-To": [
+                "How do I use the chain rule?",
+                "How do I integrate by parts?",
+            ],
+            "📙 Problem Solving": [
+                "Find the derivative of sin(x²)",
+                "Evaluate the limit of (x²-1)/(x-1) as x→1",
+            ],
+            "📕 Conceptual": [
+                "Why does the derivative of eˣ equal eˣ?",
+                "What's the relationship between derivatives and integrals?",
+            ],
+        }
+
+        for category, questions in example_categories.items():
+            st.markdown(f"**{category}**")
+            for q in questions:
+                if st.button(q, key=f"ex_{hash(q)}", use_container_width=True):
+                    st.session_state.example_question = q
 
         st.divider()
 
@@ -484,12 +579,19 @@ def main():
         # Generate response
         with st.chat_message("assistant"):
             with st.spinner("🤔 Thinking..."):
-                # Query RAG system
+                # Build conversation history (exclude current message)
+                history = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.messages[:-1]  # All except current
+                ]
+
+                # Query RAG system with conversation context
                 response = query_rag_sync(
                     st.session_state.rag_system,
                     cleaned_prompt,
                     temperature,
                     st.session_state.event_loop,
+                    conversation_history=history if history else None,
                 )
 
                 # Get model used
