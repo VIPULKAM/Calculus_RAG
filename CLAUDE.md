@@ -38,10 +38,16 @@ docker-compose up -d postgres
 docker-compose up -d postgres_test
 ```
 
-### PDF Knowledge Base Ingestion
+### Knowledge Base Management
 ```bash
-# Ingest PDFs from knowledge_content/ into pgvector
+# Full ingestion - PDFs from knowledge_content/ (clears existing data)
 python scripts/ingest_pdfs.py
+
+# Add a single PDF without clearing existing data
+python scripts/add_pdf.py path/to/file.pdf
+
+# Ingest Khan Academy markdown files
+python scripts/ingest_markdown.py --dir knowledge_content/khan_academy
 
 # Check what's been ingested
 python scripts/check_ingestion.py
@@ -51,6 +57,18 @@ python scripts/interactive_rag.py
 
 # Interactive with cloud model support
 python scripts/interactive_rag_with_cloud.py
+```
+
+### Backup & Restore
+```bash
+# Create backup (compressed binary format)
+python scripts/backup_db.py                    # Timestamped backup
+python scripts/backup_db.py my_backup          # Named backup
+
+# Restore from backup (parallel restore)
+python scripts/restore_db.py backups/starter.dump
+
+# Pre-built starter backup included: backups/starter.dump (6,835 chunks)
 ```
 
 ### Web Interface (Recommended)
@@ -167,28 +185,32 @@ The codebase follows a layered architecture with clear separation of concerns:
 
 ### Knowledge Content Structure
 
-The `knowledge_content/` directory contains markdown files organized by topic:
+The `knowledge_content/` directory contains PDFs and markdown files organized by topic:
 ```
 knowledge_content/
+├── calculus/                    # Main calculus PDFs
+│   ├── derivatives/             # Derivative cheat sheets
+│   ├── integration/             # Integration cheat sheets
+│   └── limits/                  # Limits cheat sheets
 ├── pre_calculus/
-│   ├── algebra/
-│   ├── functions/
-│   ├── trigonometry/
-│   └── exponentials_logarithms/
-└── calculus/
-    ├── limits/
-    ├── derivatives/
-    └── integration/
+│   ├── algebra/                 # Algebra PDFs and review materials
+│   └── trigonometry/            # Trig cheat sheets
+├── guides/                      # Study guides (How to Study Math, etc.)
+├── reference/                   # Reference materials (Laplace tables, etc.)
+└── khan_academy/
+    └── precalculus/             # 44 Khan Academy video summaries (markdown)
 ```
 
-Each markdown file has YAML frontmatter with metadata:
+Khan Academy markdown files have YAML frontmatter:
 ```yaml
 ---
-topic: limits.introduction
-difficulty: 3
-prerequisites:
-  - algebra.factoring
-  - functions.notation
+topic: precalculus.khan_academy
+title: "Video Title"
+source: Khan Academy
+source_url: https://youtube.com/watch?v=...
+video_id: abc123
+difficulty: 2
+content_type: video_summary
 ---
 ```
 
@@ -230,12 +252,15 @@ All configuration is managed through `src/calculus_rag/config.py`:
 - Vector dimension is configurable via `VECTOR_DIMENSION` env var (currently 1024)
 - Must match between embedding model and vector store
 
-**Knowledge Base (Sprint 5):**
-- 16 PDFs ingested from OpenStax + Paul's Online Notes
+**Knowledge Base:**
+- **Total: 6,835 chunks** in calculus_knowledge table
+- 17 PDFs ingested from OpenStax + Paul's Online Notes + user content
+- 44 Khan Academy video summaries (markdown)
 - Chunking: 512 characters with 50-char overlap (optimized for mxbai context window)
 - PDF processor: pymupdf4llm (better than pypdf for math/structure preservation)
 - Database: calculus_knowledge table with 1024-d vectors
-- Categories: Pre-Calculus (Algebra, Trig) + Calculus 1 (Limits, Derivatives, Integration)
+- Categories: Pre-Calculus (Algebra, Trig), Calculus 1 (Limits, Derivatives, Integration), Khan Academy, Guides, Reference
+- **Pre-built backup:** `backups/starter.dump` (33.97 MB) - restore in ~30 seconds
 
 **Database Setup:**
 - PostgreSQL 16 with pgvector extension is required
@@ -259,10 +284,14 @@ EMBEDDING_TYPE=ollama|sentence-transformers
 EMBEDDING_MODEL_NAME=mxbai-embed-large
 VECTOR_DIMENSION=1024
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5-math:7b
+OLLAMA_MODEL=qwen2-math:7b
 CLOUD_LLM_ENABLED=true|false
-CLOUD_LLM_PROVIDER=openrouter|deepseek|ollama-cloud
-CLOUD_LLM_API_KEY=<your-key>
+CLOUD_LLM_MODEL=deepseek-r1:671b
 CHUNK_SIZE=512
 CHUNK_OVERLAP=50
 ```
+
+**Cloud LLM Setup:**
+- Uses Ollama Cloud (via `ollama login`) - no API key management needed
+- Cloud model: DeepSeek R1 671B for complex proofs/derivations
+- Set `CLOUD_LLM_ENABLED=true` after running `ollama login`

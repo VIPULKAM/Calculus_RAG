@@ -361,6 +361,62 @@ That's it! Complex questions will now be routed to DeepSeek R1 in the cloud.
 
 ---
 
+## Quick Start with Pre-Built Knowledge Base
+
+Don't want to wait for ingestion? A pre-built knowledge base backup is included!
+
+**Instead of Step 7 (Load the Knowledge Base), you can:**
+
+### Windows
+```powershell
+python scripts/restore_db.py backups/starter.dump
+```
+
+### Mac/Linux
+```bash
+python scripts/restore_db.py backups/starter.dump
+```
+
+This restores 6,835 pre-processed chunks from calculus textbooks and Khan Academy in about 30 seconds!
+
+**What's included:**
+- 16 calculus PDFs (OpenStax, Paul's Online Notes)
+- 44 Khan Academy video summaries
+- Pre-computed embeddings for fast search
+
+---
+
+## Backup & Restore
+
+### Create Your Own Backup
+
+After adding new content, back up your knowledge base:
+
+```bash
+python scripts/backup_db.py                    # Creates timestamped backup
+python scripts/backup_db.py my_backup_name     # Creates named backup
+```
+
+Backups are stored in `backups/` as compressed binary files.
+
+### Restore From Backup
+
+```bash
+python scripts/restore_db.py backups/starter.dump
+```
+
+**Warning:** Restoring replaces all existing data in the knowledge base.
+
+### Adding New PDFs
+
+Add a single PDF without re-ingesting everything:
+
+```bash
+python scripts/add_pdf.py path/to/your/file.pdf
+```
+
+---
+
 ## Using the App
 
 Once the app is running:

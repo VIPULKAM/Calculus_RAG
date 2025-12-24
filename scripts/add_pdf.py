@@ -13,8 +13,10 @@ import asyncio
 import sys
 from pathlib import Path
 
+import asyncpg
+
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from calculus_rag.config import get_settings
 from calculus_rag.embeddings.ollama_embedder import OllamaEmbedder
@@ -55,8 +57,9 @@ async def add_single_pdf(pdf_path: str) -> int:
 
     print("[1/4] Loading embedding model...")
     embedder = OllamaEmbedder(
-        model_name=settings.embedding_model_name,
+        model=settings.embedding_model_name,
         base_url=settings.ollama_base_url,
+        dimension=settings.vector_dimension,
     )
     print(f"   ✓ Loaded: {settings.embedding_model_name}")
 
@@ -68,8 +71,9 @@ async def add_single_pdf(pdf_path: str) -> int:
     )
     await vector_store.initialize()
 
-    # Check current count
-    current_count = await vector_store.count()
+    # Check current count using asyncpg directly
+    conn = await asyncpg.connect(settings.postgres_dsn)
+    current_count = await conn.fetchval("SELECT COUNT(*) FROM calculus_knowledge")
     print(f"   ✓ Connected (current chunks: {current_count})")
 
     print("\n[3/4] Processing PDF...")
@@ -119,9 +123,13 @@ async def add_single_pdf(pdf_path: str) -> int:
         metadatas=metadatas,
     )
 
-    # Verify
-    new_count = await vector_store.count()
+    # Verify final count
+    new_count = await conn.fetchval("SELECT COUNT(*) FROM calculus_knowledge")
     added = new_count - current_count
+
+    # Clean up
+    await conn.close()
+    await vector_store.close()
 
     print(f"\n\n{'='*60}")
     print(f"✅ Successfully added {added} chunks from {pdf_file.name}")

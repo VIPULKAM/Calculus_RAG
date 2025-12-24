@@ -194,7 +194,52 @@ flowchart LR
 
 ---
 
-## 5. Component Architecture
+## 5. Backup & Restore
+
+```mermaid
+flowchart LR
+    subgraph Backup["💾 Backup Process"]
+        DB1[("PostgreSQL<br/>calculus_knowledge")]
+        PGDUMP["pg_dump -Fc<br/>Custom Format"]
+        DUMP["📦 starter.dump<br/>33.97 MB<br/>6,835 chunks"]
+    end
+
+    subgraph Restore["🔄 Restore Process"]
+        DUMP2["📦 .dump file"]
+        PGRESTORE["pg_restore -j N<br/>Parallel Restore"]
+        DB2[("PostgreSQL<br/>calculus_knowledge")]
+    end
+
+    DB1 --> PGDUMP
+    PGDUMP --> DUMP
+
+    DUMP2 --> PGRESTORE
+    PGRESTORE --> DB2
+
+    subgraph Scripts["🔧 Scripts"]
+        S1["backup_db.py"]
+        S2["restore_db.py"]
+    end
+
+    S1 -.-> PGDUMP
+    S2 -.-> PGRESTORE
+
+    style DUMP fill:#c8e6c9
+    style DUMP2 fill:#c8e6c9
+    style DB1 fill:#fff3e0
+    style DB2 fill:#fff3e0
+```
+
+**Quick Start Options:**
+| Method | Command | Time |
+|--------|---------|------|
+| Restore pre-built | `python scripts/restore_db.py backups/starter.dump` | ~30 seconds |
+| Full ingestion | `python scripts/ingest_pdfs.py` | 5-15 minutes |
+| Add single PDF | `python scripts/add_pdf.py path/to/file.pdf` | 1-2 minutes |
+
+---
+
+## 6. Component Architecture
 
 ```mermaid
 flowchart TB
@@ -259,7 +304,7 @@ flowchart TB
 
 ---
 
-## 6. Prerequisite System
+## 7. Prerequisite System
 
 ```mermaid
 flowchart TD
@@ -302,7 +347,7 @@ flowchart TD
 
 ---
 
-## 7. Database Schema
+## 8. Database Schema
 
 ```mermaid
 erDiagram
@@ -327,7 +372,7 @@ erDiagram
 
 ---
 
-## 8. Environment Configuration
+## 9. Environment Configuration
 
 ```mermaid
 flowchart LR
@@ -363,7 +408,7 @@ flowchart LR
 
 ---
 
-## 9. Directory Structure
+## 10. Directory Structure
 
 ```
 📁 Calculus_RAG/
@@ -375,8 +420,14 @@ flowchart LR
 ├── 📁 scripts/
 │   ├── 📄 ingest_pdfs.py        # Full ingestion (clears DB)
 │   ├── 📄 add_pdf.py            # Add single PDF (preserves DB)
+│   ├── 📄 ingest_markdown.py    # Ingest markdown files
+│   ├── 📄 backup_db.py          # Create database backup
+│   ├── 📄 restore_db.py         # Restore from backup
 │   ├── 📄 check_ingestion.py    # View DB status
 │   └── 📄 interactive_rag.py    # Terminal chat
+│
+├── 📁 backups/
+│   └── 📄 starter.dump          # Pre-built knowledge base (6,835 chunks)
 │
 ├── 📁 src/calculus_rag/
 │   ├── 📄 config.py             # Settings management
@@ -410,17 +461,19 @@ flowchart LR
 │       ├── 📄 graph.py
 │       └── 📄 detector.py
 │
-├── 📁 knowledge_content/        # PDF textbooks
-│   ├── 📁 calculus/
-│   ├── 📁 pre_calculus/
-│   └── 📁 guides/
+├── 📁 knowledge_content/        # Source content
+│   ├── 📁 calculus/             # Calculus PDFs
+│   ├── 📁 pre_calculus/         # Pre-calculus PDFs
+│   ├── 📁 guides/               # Study guides
+│   ├── 📁 reference/            # Reference materials
+│   └── 📁 khan_academy/         # Khan Academy summaries (44 markdown files)
 │
 └── 📁 tests/                    # Test suite
 ```
 
 ---
 
-## 10. Technology Stack
+## 11. Technology Stack
 
 | Layer | Technology | Version | Purpose |
 |-------|------------|---------|---------|

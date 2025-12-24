@@ -81,10 +81,10 @@ The derivative is dy/dx = 2x
 - Adjustable temperature/creativity
 
 ✅ **Full Knowledge Base**
-- 2,823 chunks from 16 PDFs
-- Paul's Online Notes
-- Calculus cheat sheets
-- Practice problems & solutions
+- 6,835 chunks from 17 PDFs + 44 Khan Academy videos
+- Paul's Online Notes & Khan Academy summaries
+- Calculus cheat sheets & reference materials
+- Practice problems & study guides
 
 ---
 

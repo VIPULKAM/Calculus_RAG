@@ -307,13 +307,13 @@ def main():
         st.header("📚 Knowledge Base")
         st.info(
             """
-            **16 PDFs Loaded:**
+            **17 PDFs + 44 Khan Academy Videos:**
             - Paul's Online Notes (Algebra, Calculus)
-            - Calculus Cheat Sheets
-            - Practice Problems
-            - Study Guides
+            - Calculus Cheat Sheets & Practice Problems
+            - Khan Academy Video Summaries
+            - Study Guides & Reference Materials
 
-            **Total:** 2,823 chunks
+            **Total:** 6,835 chunks
             """
         )
 

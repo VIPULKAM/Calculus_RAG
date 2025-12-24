@@ -206,8 +206,8 @@ async def setup_rag() -> tuple:
     )
     await vector_store.initialize()
 
-    # Using existing knowledge base (2,823 chunks from ingested PDFs)
-    print(f"   ✓ Connected to knowledge base with 2,823 chunks")
+    # Using existing knowledge base (6,835 chunks from ingested PDFs + Khan Academy)
+    print(f"   ✓ Connected to knowledge base with 6,835 chunks")
 
     # Initialize Smart Model Router
     print("   Setting up Smart Model Router...")
@@ -260,17 +260,17 @@ async def interactive_session():
     rag_pipeline, router, vector_store = await setup_rag()
 
     print("=" * 80)
-    print("Interactive Calculus RAG - Full Knowledge Base (2,823 Chunks)")
+    print("Interactive Calculus RAG - Full Knowledge Base (6,835 Chunks)")
     print("=" * 80)
     print("\n🤖 Smart Routing Enabled:")
     print("   • Simple questions → Fast model (qwen2-math:1.5b)")
     print("   • Complex questions → Powerful model (qwen2-math:7b)")
     print("   • Automatic fallback for reliability")
-    print("\n📚 Knowledge Base (16 PDFs):")
+    print("\n📚 Knowledge Base (17 PDFs + 44 Khan Academy):")
     print("   • Paul's Online Notes (Algebra, Calculus)")
     print("   • Calculus Cheat Sheets (Limits, Derivatives, Integrals)")
-    print("   • Practice Problems & Solutions")
-    print("   • Study Guides & Common Errors")
+    print("   • Khan Academy Video Summaries")
+    print("   • Study Guides & Reference Materials")
     print("\n💡 Tips:")
     print("   • Type 'quit' or 'exit' to stop")
     print("   • Ask any calculus or pre-calculus question")
@@ -294,10 +294,10 @@ async def interactive_session():
 
             if question.lower() == "stats":
                 print("\n📊 Knowledge Base Statistics:")
-                print("   • Total chunks: 2,823")
-                print("   • PDFs: 16 (OpenStax + Paul's Online Notes)")
+                print("   • Total chunks: 6,835")
+                print("   • PDFs: 17 (OpenStax + Paul's Online Notes)")
+                print("   • Khan Academy: 44 video summaries")
                 print("   • Topics: Algebra, Trig, Limits, Derivatives, Integrals")
-                print("   • Practice problems, cheat sheets, study guides")
                 continue
 
             question_count += 1
