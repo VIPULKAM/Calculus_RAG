@@ -21,6 +21,14 @@ class ComplexityLevel(Enum):
     COMPLEX = 3  # Advanced problems, proofs, complex reasoning
 
 
+class QueryDomain(Enum):
+    """Query domain types for specialized routing."""
+
+    MATH = "math"  # Mathematical questions, calculus, algebra
+    CODE = "code"  # Programming, implementation, algorithms
+    GENERAL = "general"  # General questions, explanations
+
+
 @dataclass
 class ModelConfig:
     """Configuration for a model in the routing system."""
@@ -28,12 +36,24 @@ class ModelConfig:
     llm: BaseLLM
     name: str
     max_complexity: ComplexityLevel
+    domains: list[QueryDomain] | None = None  # None means all domains
     is_fallback: bool = False
+
+    def __post_init__(self) -> None:
+        """Set default domains if not specified."""
+        if self.domains is None:
+            self.domains = [QueryDomain.MATH, QueryDomain.GENERAL]
+
+    def handles_domain(self, domain: QueryDomain) -> bool:
+        """Check if this model handles the given domain."""
+        if self.domains is None:
+            return True  # None means all domains
+        return domain in self.domains
 
 
 class ComplexityAnalyzer:
     """
-    Analyzes question complexity using heuristics.
+    Analyzes question complexity and domain using heuristics.
 
     This is a simple rule-based system. Can be enhanced with ML later.
     """
@@ -71,6 +91,44 @@ class ComplexityAnalyzer:
         "find the derivative of",
         "power rule",
         "constant rule",
+    ]
+
+    # Keywords that suggest code/programming domain
+    CODE_KEYWORDS = [
+        "python",
+        "code",
+        "implement",
+        "program",
+        "script",
+        "algorithm",
+        "function def",
+        "class",
+        "debug",
+        "write a function",
+        "write code",
+        "javascript",
+        "java",
+        "c++",
+        "rust",
+    ]
+
+    # Keywords that suggest math domain
+    MATH_KEYWORDS = [
+        "derivative",
+        "integral",
+        "limit",
+        "differentiate",
+        "integrate",
+        "equation",
+        "function",
+        "calculus",
+        "algebra",
+        "trigonometry",
+        "sine",
+        "cosine",
+        "tangent",
+        "logarithm",
+        "exponential",
     ]
 
     def analyze(self, question: str) -> ComplexityLevel:
@@ -119,6 +177,40 @@ class ComplexityAnalyzer:
         else:
             return ComplexityLevel.MODERATE
 
+    def detect_domain(self, question: str) -> QueryDomain:
+        """
+        Detect the primary domain of the question.
+
+        Args:
+            question: The question to analyze.
+
+        Returns:
+            QueryDomain: The detected domain (MATH, CODE, or GENERAL).
+        """
+        question_lower = question.lower()
+
+        # Check for code patterns first (more specific)
+        code_score = sum(1 for kw in self.CODE_KEYWORDS if kw in question_lower)
+        # Code blocks are a strong signal
+        if "```" in question or code_score >= 2:
+            return QueryDomain.CODE
+        if code_score >= 1:
+            # Check if it's also math-related (e.g., "implement derivative calculator")
+            math_score = sum(1 for kw in self.MATH_KEYWORDS if kw in question_lower)
+            if math_score == 0:
+                return QueryDomain.CODE
+
+        # Check for math patterns
+        math_score = sum(1 for kw in self.MATH_KEYWORDS if kw in question_lower)
+        # Also count complex/simple keywords as math indicators
+        math_score += sum(1 for kw in self.COMPLEX_KEYWORDS if kw in question_lower)
+        math_score += sum(1 for kw in self.SIMPLE_KEYWORDS if kw in question_lower)
+
+        if math_score >= 1:
+            return QueryDomain.MATH
+
+        return QueryDomain.GENERAL
+
 
 class ModelRouter(BaseLLM):
     """
@@ -156,6 +248,7 @@ class ModelRouter(BaseLLM):
         llm: BaseLLM,
         name: str,
         max_complexity: ComplexityLevel,
+        domains: list[QueryDomain] | None = None,
         is_fallback: bool = False,
     ) -> None:
         """
@@ -165,12 +258,14 @@ class ModelRouter(BaseLLM):
             llm: The LLM instance.
             name: Human-readable name for the model.
             max_complexity: Maximum complexity this model can handle.
+            domains: List of domains this model handles (None = all domains).
             is_fallback: Whether this model is used as fallback.
         """
         config = ModelConfig(
             llm=llm,
             name=name,
             max_complexity=max_complexity,
+            domains=domains,
             is_fallback=is_fallback,
         )
         self.models.append(config)
@@ -200,7 +295,13 @@ class ModelRouter(BaseLLM):
 
     def _select_model(self, question: str) -> ModelConfig:
         """
-        Select appropriate model based on question complexity.
+        Select appropriate model based on question complexity and domain.
+
+        Routing priority:
+        1. Primary model matching BOTH domain AND complexity
+        2. Fallback model matching domain (for complex queries)
+        3. Any model matching complexity (cross-domain fallback)
+        4. Most powerful model (last resort)
 
         Args:
             question: The question to analyze.
@@ -214,10 +315,26 @@ class ModelRouter(BaseLLM):
         if not self.models:
             raise ValueError("No models configured in router")
 
-        # Analyze complexity
+        # Analyze complexity AND domain
         complexity = self.complexity_analyzer.analyze(question)
+        domain = self.complexity_analyzer.detect_domain(question)
 
-        # Find the smallest model that can handle this complexity
+        # First pass: find PRIMARY model matching BOTH domain AND complexity
+        for model_config in self.models:
+            if model_config.handles_domain(domain):
+                if model_config.max_complexity.value >= complexity.value:
+                    if not model_config.is_fallback:
+                        return model_config
+
+        # Second pass: find FALLBACK model matching domain
+        # (This handles cases where the primary model can't handle complexity)
+        for model_config in self.models:
+            if model_config.handles_domain(domain):
+                if model_config.max_complexity.value >= complexity.value:
+                    if model_config.is_fallback:
+                        return model_config
+
+        # Third pass: find any model that handles complexity (cross-domain fallback)
         for model_config in self.models:
             if model_config.max_complexity.value >= complexity.value:
                 if not model_config.is_fallback:
@@ -261,6 +378,9 @@ class ModelRouter(BaseLLM):
             response.metadata["router_complexity"] = self.complexity_analyzer.analyze(
                 question
             ).name
+            response.metadata["router_domain"] = self.complexity_analyzer.detect_domain(
+                question
+            ).value
             return response
 
         except Exception as primary_error:

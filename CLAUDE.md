@@ -179,9 +179,16 @@ The codebase follows a layered architecture with clear separation of concerns:
 - `retriever.py`: Base semantic search and retrieval logic
 - `hybrid_retriever.py`: Combines semantic + keyword search
 - `prerequisite_aware_retriever.py`: Retrieves context while considering prerequisite topics
+- `reranker.py`: Cross-encoder reranker (BGE-reranker-large) for improved relevance scoring
 
 **`src/calculus_rag/api/`**
 - FastAPI application for serving the RAG system
+
+**`src/calculus_rag/learning/`**
+- `learner.py`: KnowledgeLearner saves verified LLM responses to the knowledge base when users confirm correctness (thumbs up). Includes deduplication (similarity threshold), automatic topic detection via regex patterns, and difficulty estimation.
+
+**`src/calculus_rag/utils/`**
+- `text_cleanup.py`: Fixes corrupted mathematical notation from PDF extraction (fragmented subscripts like `_x_`, Unicode bracket artifacts, scattered integral bounds, excessive whitespace).
 
 ### Knowledge Content Structure
 

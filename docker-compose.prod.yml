@@ -1,0 +1,125 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: calculus_rag_postgres_prod
+    restart: always
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-calculus_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-calculus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    networks:
+      - calculus-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-calculus} -d ${POSTGRES_DB:-calculus_rag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: calculus_rag_ollama_prod
+    restart: always
+    volumes:
+      - ollama_data:/root/.ollama
+      # Uncomment to use host's Ollama Cloud credentials
+      # - ${HOME}/.ollama/id_ed25519:/root/.ollama/id_ed25519:ro
+      # - ${HOME}/.ollama/id_ed25519.pub:/root/.ollama/id_ed25519.pub:ro
+    networks:
+      - calculus-network
+    # Uncomment below for GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # One-time model puller (runs and exits)
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: calculus_rag_ollama_init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - calculus-network
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Pulling required models..."
+        ollama pull mxbai-embed-large
+        ollama pull qwen2-math:1.5b
+        echo "Models pulled successfully!"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: calculus_rag_app_prod
+    restart: always
+    ports:
+      - "${APP_PORT:-8501}:8501"
+    environment:
+      - ENVIRONMENT=production
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-calculus_rag}
+      - POSTGRES_USER=${POSTGRES_USER:-calculus}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDING_TYPE=ollama
+      - EMBEDDING_MODEL_NAME=mxbai-embed-large
+      - VECTOR_DIMENSION=1024
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2-math:1.5b}
+      - CLOUD_LLM_ENABLED=${CLOUD_LLM_ENABLED:-false}
+      - CLOUD_LLM_PROVIDER=${CLOUD_LLM_PROVIDER:-ollama-cloud}
+      - CLOUD_LLM_MODEL=${CLOUD_LLM_MODEL:-deepseek-v3.1:671b-cloud}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    networks:
+      - calculus-network
+    volumes:
+      - ./knowledge_content:/app/knowledge_content:ro
+      - ./backups:/app/backups
+
+  # Optional: Nginx reverse proxy with SSL
+  nginx:
+    image: nginx:alpine
+    container_name: calculus_rag_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+    networks:
+      - calculus-network
+    profiles:
+      - with-nginx
+
+volumes:
+  pgdata:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  calculus-network:
+    driver: bridge

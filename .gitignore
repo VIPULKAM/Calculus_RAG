@@ -53,6 +53,9 @@ coverage_html/
 
 # Environments
 .env
+.env.prod
+.env.local
+.env*.local
 .venv
 env/
 venv/
@@ -97,6 +100,12 @@ models/
 # Logs
 *.log
 logs/
+nohup*.out
+ingestion_log_*.txt
+
+# Progress tracking files
+.ingestion_progress.json
+.youtube_progress.json
 
 # OS
 .DS_Store

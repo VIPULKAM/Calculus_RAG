@@ -309,7 +309,7 @@ class PgVectorStore(BaseVectorStore):
         """
         Perform hybrid search combining semantic and full-text search.
 
-        Uses Reciprocal Rank Fusion (RRF) to combine results from both methods.
+        Uses weighted score combination with normalized scores (0-1 range).
 
         Args:
             query_text: The text query for full-text search.
@@ -319,43 +319,57 @@ class PgVectorStore(BaseVectorStore):
             where: Optional metadata filter conditions.
 
         Returns:
-            list[QueryResult]: Combined results with fused scores.
+            list[QueryResult]: Combined results with weighted scores (0-1 range).
         """
         if not self._pool:
             raise RuntimeError("Store not initialized. Call initialize() first.")
 
-        # Get more results from each method for better fusion
+        # Get more results from each method for better combination
         k = n_results * 3
 
         # Run both searches
         semantic_results = await self.query(query_embedding, n_results=k, where=where)
         fulltext_results = await self.fulltext_search(query_text, n_results=k, where=where)
 
-        # Reciprocal Rank Fusion (RRF)
-        # Score = sum of 1/(k + rank) for each result across methods
-        rrf_k = 60  # Constant to prevent high ranks from dominating
-
-        scores: dict[str, float] = {}
+        # Build score dictionaries
+        # Semantic scores are already 0-1 (cosine similarity)
+        semantic_scores: dict[str, float] = {}
         contents: dict[str, str] = {}
         metadatas: dict[str, dict] = {}
 
-        # Add semantic results with weight
-        for rank, result in enumerate(semantic_results):
-            rrf_score = semantic_weight * (1.0 / (rrf_k + rank + 1))
-            scores[result.id] = scores.get(result.id, 0) + rrf_score
+        for result in semantic_results:
+            semantic_scores[result.id] = result.score
             contents[result.id] = result.content
             metadatas[result.id] = result.metadata
 
-        # Add full-text results with weight
-        fulltext_weight = 1.0 - semantic_weight
-        for rank, result in enumerate(fulltext_results):
-            rrf_score = fulltext_weight * (1.0 / (rrf_k + rank + 1))
-            scores[result.id] = scores.get(result.id, 0) + rrf_score
+        # Normalize fulltext scores to 0-1 range
+        # ts_rank typically returns values 0-1 but can vary
+        fulltext_scores: dict[str, float] = {}
+        max_ft_score = 0.0
+        for result in fulltext_results:
+            fulltext_scores[result.id] = result.score
             contents[result.id] = result.content
             metadatas[result.id] = result.metadata
+            if result.score > max_ft_score:
+                max_ft_score = result.score
+
+        # Normalize fulltext scores to 0-1 range
+        if max_ft_score > 0:
+            for id_ in fulltext_scores:
+                fulltext_scores[id_] = fulltext_scores[id_] / max_ft_score
+
+        # Combine scores using weighted average
+        fulltext_weight = 1.0 - semantic_weight
+        combined_scores: dict[str, float] = {}
+        all_ids = set(semantic_scores.keys()) | set(fulltext_scores.keys())
+
+        for id_ in all_ids:
+            sem_score = semantic_scores.get(id_, 0.0)
+            ft_score = fulltext_scores.get(id_, 0.0)
+            combined_scores[id_] = (semantic_weight * sem_score) + (fulltext_weight * ft_score)
 
         # Sort by combined score
-        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+        sorted_ids = sorted(combined_scores.keys(), key=lambda x: combined_scores[x], reverse=True)
 
         # Build results
         results = []
@@ -364,7 +378,7 @@ class PgVectorStore(BaseVectorStore):
                 id=id_,
                 content=contents[id_],
                 metadata=metadatas[id_],
-                score=scores[id_],
+                score=combined_scores[id_],
             )
             results.append(result)
 

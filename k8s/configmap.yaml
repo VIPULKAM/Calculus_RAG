@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: calculus-rag-config
+  namespace: calculus-rag
+data:
+  ENVIRONMENT: "production"
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_PORT: "5432"
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  EMBEDDING_TYPE: "ollama"
+  EMBEDDING_MODEL_NAME: "mxbai-embed-large"
+  VECTOR_DIMENSION: "1024"
+  OLLAMA_MODEL: "qwen2-math:1.5b"
+  CLOUD_LLM_ENABLED: "false"
+  CLOUD_LLM_MODEL: "deepseek-r1:671b"

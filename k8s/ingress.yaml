@@ -1,0 +1,57 @@
+---
+# Ingress for NGINX Ingress Controller
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: calculus-rag-ingress
+  namespace: calculus-rag
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # WebSocket support for Streamlit
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$request_uri"
+    # Uncomment for SSL redirect
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Uncomment for cert-manager TLS
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: calculus-tutor.university.edu  # Change to your domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: calculus-rag-service
+                port:
+                  number: 80
+  # Uncomment for TLS
+  # tls:
+  #   - hosts:
+  #       - calculus-tutor.university.edu
+  #     secretName: calculus-rag-tls
+
+---
+# Alternative: Traefik IngressRoute (if using Traefik)
+# apiVersion: traefik.containo.us/v1alpha1
+# kind: IngressRoute
+# metadata:
+#   name: calculus-rag-ingressroute
+#   namespace: calculus-rag
+# spec:
+#   entryPoints:
+#     - web
+#     - websecure
+#   routes:
+#     - match: Host(`calculus-tutor.university.edu`)
+#       kind: Rule
+#       services:
+#         - name: calculus-rag-service
+#           port: 80
+#   tls:
+#     certResolver: letsencrypt

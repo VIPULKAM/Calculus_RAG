@@ -62,6 +62,8 @@ class PrerequisiteAwareRetriever:
         prerequisite_weight: float = 0.7,
         use_hybrid_search: bool = True,
         semantic_weight: float = 0.7,
+        use_reranking: bool = False,
+        rerank_candidates: int = 20,
     ) -> None:
         """
         Initialize the prerequisite-aware retriever.
@@ -78,16 +80,24 @@ class PrerequisiteAwareRetriever:
                                 Main topic results keep full score.
             use_hybrid_search: Whether to use hybrid (semantic + keyword) search.
             semantic_weight: Weight for semantic search in hybrid mode (0-1).
+            use_reranking: Whether to use cross-encoder reranking.
+            rerank_candidates: Number of candidates to fetch for reranking.
         """
         self.embedder = embedder
         self.vector_store = vector_store
-        self.base_retriever = Retriever(embedder, vector_store)
+        self.base_retriever = Retriever(
+            embedder, vector_store,
+            use_reranking=use_reranking,
+            rerank_candidates=rerank_candidates,
+        )
         self.graph = prerequisite_graph or build_prerequisite_graph()
         self.detector = GapDetector(self.graph)
         self.max_prerequisite_depth = max_prerequisite_depth
         self.prerequisite_weight = prerequisite_weight
         self.use_hybrid_search = use_hybrid_search
         self.semantic_weight = semantic_weight
+        self.use_reranking = use_reranking
+        self.rerank_candidates = rerank_candidates
 
     def _get_limited_prerequisites(self, topic: str, depth: int = 1) -> list[str]:
         """

@@ -9,21 +9,63 @@ Usage: streamlit run app.py
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 
+import requests
+
+# Disable uvloop before importing other modules to allow nest_asyncio
+asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
+import nest_asyncio
 import streamlit as st
+
+# Apply nest_asyncio to allow nested event loops
+nest_asyncio.apply()
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from calculus_rag.config import get_settings
 from calculus_rag.embeddings.ollama_embedder import OllamaEmbedder
+from calculus_rag.learning import KnowledgeLearner
 from calculus_rag.llm.cloud_llm import CloudLLM
-from calculus_rag.llm.model_router import ComplexityLevel, ModelRouter
+from calculus_rag.llm.model_router import ComplexityLevel, ModelRouter, QueryDomain
 from calculus_rag.llm.ollama_llm import OllamaLLM
 from calculus_rag.rag.pipeline import RAGPipeline
 from calculus_rag.retrieval.prerequisite_aware_retriever import PrerequisiteAwareRetriever
 from calculus_rag.retrieval.retriever import Retriever
 from calculus_rag.vectorstore.pgvector_store import PgVectorStore
+
+
+def get_available_cloud_models() -> list[str]:
+    """Fetch available cloud models from Ollama."""
+    settings = get_settings()
+    try:
+        response = requests.get(
+            f"{settings.ollama_base_url}/api/tags",
+            timeout=5
+        )
+        if response.status_code == 200:
+            models = response.json().get("models", [])
+            # Filter for cloud models (have -cloud suffix or :cloud tag)
+            cloud_models = [
+                m["name"] for m in models
+                if "-cloud" in m["name"] or ":cloud" in m["name"]
+            ]
+            return sorted(cloud_models)
+    except Exception:
+        pass
+    return []
+
+
+def create_llm_for_model(model_name: str):
+    """Create an OllamaLLM instance for a specific model."""
+    settings = get_settings()
+    return OllamaLLM(
+        model=model_name,
+        base_url=settings.ollama_base_url,
+        timeout=settings.cloud_llm_timeout,
+    )
 
 
 # Page configuration
@@ -61,7 +103,10 @@ st.markdown(
 def get_or_create_eventloop():
     """Get or create an event loop for async operations."""
     try:
-        return asyncio.get_event_loop()
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("Loop is closed")
+        return loop
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -130,30 +175,59 @@ def get_knowledge_base_stats():
 
 def fix_latex_rendering(text: str) -> str:
     r"""
-    Convert LaTeX delimiters from \[ \] to $$ $$ for Streamlit rendering.
+    Convert various LaTeX formats to Streamlit-compatible $$ $$ and $ $ delimiters.
 
-    Also handles inline math delimiters \( \) to $ $.
+    Handles multiple LaTeX delimiter styles from different LLMs:
+    - \[ \] -> $$ $$
+    - \( \) -> $ $
+    - \begin{equation} \end{equation} -> $$ $$
+    - \begin{align} \end{align} -> $$ $$
+    - <think>...</think> tags (DeepSeek R1) -> removed
+    - Double backslashes -> single backslashes
 
     Args:
-        text: Text containing LaTeX with \[ \] delimiters
+        text: Text containing LaTeX with various delimiters
 
     Returns:
-        Text with $$ $$ delimiters for Streamlit
+        Text with Streamlit-compatible delimiters
     """
     import re
 
-    # Replace display math: [ ... ] -> $$ ... $$
+    # Remove DeepSeek R1 thinking tags (keep content between them hidden)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+
+    # Fix double-escaped backslashes (\\frac -> \frac) common in JSON
+    # But be careful: $$ should stay as $$, not become $
+    text = re.sub(r'\\\\(?=[a-zA-Z])', r'\\', text)
+
+    # Replace display math: \[ ... \] -> $$ ... $$
     text = re.sub(r'\\\[', '$$', text)
     text = re.sub(r'\\\]', '$$', text)
-
-    # Also handle bare [ ] that might be used for display math
-    # But be careful not to replace actual brackets in text
-    text = re.sub(r'(?<!\w)\[(?=\s*\\)', '$$', text)
-    text = re.sub(r'(?<=\s)\](?!\w)', '$$', text)
 
     # Replace inline math: \( ... \) -> $ ... $
     text = re.sub(r'\\\(', '$', text)
     text = re.sub(r'\\\)', '$', text)
+
+    # Replace \begin{equation} ... \end{equation} -> $$ ... $$
+    text = re.sub(r'\\begin\{equation\*?\}', '$$', text)
+    text = re.sub(r'\\end\{equation\*?\}', '$$', text)
+
+    # Replace \begin{align} ... \end{align} -> $$ ... $$
+    text = re.sub(r'\\begin\{align\*?\}', '$$', text)
+    text = re.sub(r'\\end\{align\*?\}', '$$', text)
+
+    # Replace \begin{gather} ... \end{gather} -> $$ ... $$
+    text = re.sub(r'\\begin\{gather\*?\}', '$$', text)
+    text = re.sub(r'\\end\{gather\*?\}', '$$', text)
+
+    # Handle bare [ ] that might be used for display math
+    # But be careful not to replace actual brackets in text
+    text = re.sub(r'(?<!\w)\[(?=\s*\\)', '$$', text)
+    text = re.sub(r'(?<=\s)\](?!\w)', '$$', text)
+
+    # Clean up any triple or quadruple $$ that might result from conversions
+    text = re.sub(r'\${4,}', '$$', text)
+    text = re.sub(r'\${3}', '$$', text)
 
     return text
 
@@ -236,7 +310,7 @@ def initialize_rag_system():
         dimension=settings.vector_dimension,
     )
 
-    # Initialize vector store with new event loop
+    # Initialize vector store
     async def init_vectorstore():
         vector_store = PgVectorStore(
             connection_string=settings.postgres_dsn,
@@ -249,7 +323,8 @@ def initialize_rag_system():
     loop = get_or_create_eventloop()
     vector_store = loop.run_until_complete(init_vectorstore())
 
-    # Initialize Smart Model Router
+    # Initialize Smart Model Router with Domain-Aware Routing
+    # Math models (local, fast)
     small_llm = OllamaLLM(
         model="qwen2-math:1.5b",
         base_url=settings.ollama_base_url,
@@ -259,12 +334,31 @@ def initialize_rag_system():
     router = ModelRouter(enable_fallback=True)
     router.add_model(
         llm=small_llm,
-        name="Fast-1.5B",
+        name="Fast-Math-1.5B",
         max_complexity=ComplexityLevel.MODERATE,
+        domains=[QueryDomain.MATH],  # Math-specific model
     )
 
-    # Use cloud LLM for complex queries if enabled (avoids heavy local 7B)
-    if settings.cloud_llm_enabled and settings.cloud_llm_api_key:
+    # Use cloud LLMs for specialized routing
+    # For ollama-cloud provider, API key is not needed (uses OAuth)
+    cloud_enabled = settings.cloud_llm_enabled and (
+        settings.cloud_llm_api_key or settings.cloud_llm_provider == "ollama-cloud"
+    )
+    if cloud_enabled:
+        # Code-specialized model (devstral for code questions)
+        code_llm = OllamaLLM(
+            model="devstral-2:123b-cloud",
+            base_url=settings.ollama_base_url,
+            timeout=settings.cloud_llm_timeout,
+        )
+        router.add_model(
+            llm=code_llm,
+            name="Code-Devstral",
+            max_complexity=ComplexityLevel.COMPLEX,
+            domains=[QueryDomain.CODE],  # Code-specific model
+        )
+
+        # Heavy reasoning model for math proofs and complex queries
         if settings.cloud_llm_provider == "ollama-cloud":
             # Ollama cloud models run through local Ollama server
             # Auth is handled via Ollama OAuth (user signs in via browser)
@@ -286,6 +380,7 @@ def initialize_rag_system():
             llm=cloud_llm,
             name=f"Cloud-{settings.cloud_llm_model.split('/')[-1].split(':')[0]}",
             max_complexity=ComplexityLevel.COMPLEX,
+            domains=[QueryDomain.MATH, QueryDomain.GENERAL],  # Math + general fallback
             is_fallback=True,
         )
     else:
@@ -299,20 +394,28 @@ def initialize_rag_system():
             llm=large_llm,
             name="Powerful-7B",
             max_complexity=ComplexityLevel.COMPLEX,
+            domains=[QueryDomain.MATH, QueryDomain.GENERAL, QueryDomain.CODE],
             is_fallback=True,
         )
 
-    # Create retrievers
-    retriever = Retriever(embedder=embedder, vector_store=vector_store)
+    # Create retrievers with reranking for better relevance
+    retriever = Retriever(
+        embedder=embedder,
+        vector_store=vector_store,
+        use_reranking=True,        # Enable BGE reranker for better relevance
+        rerank_candidates=20,      # Fetch 20 candidates, rerank to top 5
+    )
 
-    # Create prerequisite-aware retriever with hybrid search for enhanced context
+    # Create prerequisite-aware retriever with hybrid search and reranking
     prereq_retriever = PrerequisiteAwareRetriever(
         embedder=embedder,
         vector_store=vector_store,
         max_prerequisite_depth=2,  # Include prereqs and their prereqs
         prerequisite_weight=0.8,   # Slightly lower weight for prereq content
         use_hybrid_search=True,    # Enable hybrid (semantic + keyword) search
-        semantic_weight=0.7,       # 70% semantic, 30% keyword
+        semantic_weight=0.5,       # 50% semantic, 50% keyword (balanced for math terms)
+        use_reranking=True,        # Enable BGE reranker for better relevance
+        rerank_candidates=20,      # Fetch 20 candidates, rerank to top results
     )
 
     # Create RAG pipeline with prerequisite-aware retrieval
@@ -324,19 +427,46 @@ def initialize_rag_system():
         use_prerequisite_retrieval=True,
     )
 
-    return rag_pipeline, router, vector_store, loop
+    # Create knowledge learner for self-improvement
+    learner = KnowledgeLearner(
+        embedder=embedder,
+        vector_store=vector_store,
+        min_answer_length=50,
+    )
+
+    return rag_pipeline, router, vector_store, loop, learner
 
 
-def query_rag_sync(rag_pipeline, question, temperature, loop, conversation_history=None):
+# Lock to serialize async operations and prevent concurrent run_until_complete calls
+_async_lock = threading.Lock()
+
+
+def query_rag_sync(rag_pipeline, question, temperature, loop, conversation_history=None, llm_override=None):
     """Query the RAG system synchronously (wrapper for async)."""
     async def _query():
         return await rag_pipeline.query(
             question=question,
             temperature=temperature,
             conversation_history=conversation_history,
+            llm_override=llm_override,
         )
 
-    return loop.run_until_complete(_query())
+    with _async_lock:
+        return loop.run_until_complete(_query())
+
+
+def save_to_knowledge_base(learner, question, answer, detected_topic, source_scores, loop):
+    """Save a verified answer to the knowledge base."""
+    async def _save():
+        return await learner.learn(
+            question=question,
+            answer=answer,
+            detected_topic=detected_topic,
+            source_scores=source_scores,
+        )
+
+    with _async_lock:
+        return loop.run_until_complete(_save())
 
 
 def main():
@@ -356,6 +486,23 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Settings")
+
+        # Model selector
+        cloud_models = get_available_cloud_models()
+        model_options = ["Auto (Smart Routing)"] + cloud_models
+
+        selected_model = st.selectbox(
+            "🤖 Model Selection",
+            options=model_options,
+            index=0,
+            help="Auto uses smart routing based on question complexity. Or select a specific cloud model.",
+        )
+
+        # Store selection in session state
+        if selected_model == "Auto (Smart Routing)":
+            st.session_state.selected_model = None
+        else:
+            st.session_state.selected_model = selected_model
 
         temperature = st.slider(
             "Response Creativity",
@@ -389,9 +536,23 @@ def main():
         st.divider()
 
         st.header("🤖 Smart Routing")
-        # Show routing info based on configuration
+        # Show routing info based on configuration and selection
         settings_check = get_settings()
-        if settings_check.cloud_llm_enabled and settings_check.cloud_llm_api_key:
+        cloud_enabled = settings_check.cloud_llm_enabled and (
+            settings_check.cloud_llm_api_key or settings_check.cloud_llm_provider == "ollama-cloud"
+        )
+
+        if st.session_state.get("selected_model"):
+            # Manual model selection
+            st.info(
+                f"""
+                **Selected Model:** {st.session_state.selected_model}
+
+                ⚠️ Auto-routing disabled
+                Using selected cloud model for all questions.
+                """
+            )
+        elif cloud_enabled:
             st.success(
                 f"""
                 **Fast Model:** qwen2-math:1.5b
@@ -511,6 +672,36 @@ def main():
     # Initialize session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "pending_save" not in st.session_state:
+        st.session_state.pending_save = None
+
+    # Process any pending save action (from button click)
+    if st.session_state.pending_save is not None:
+        save_data = st.session_state.pending_save
+        st.session_state.pending_save = None
+        try:
+            # Need to reinitialize learner if not in session state
+            if "learner" in st.session_state:
+                result = save_to_knowledge_base(
+                    st.session_state.learner,
+                    save_data["question"],
+                    save_data["answer"],
+                    save_data["topic"],
+                    save_data["scores"],
+                    st.session_state.event_loop,
+                )
+                # Update message state
+                if save_data["msg_idx"] < len(st.session_state.messages):
+                    st.session_state.messages[save_data["msg_idx"]]["saved_to_kb"] = True
+
+                # Check if it was a duplicate (chunk_id starts with "existing_")
+                if result.chunk_id and result.chunk_id.startswith("existing_"):
+                    st.info(f"ℹ️ Similar content already exists in knowledge base (ID: {result.chunk_id[9:]})")
+                else:
+                    st.success(f"✅ Saved to knowledge base! (ID: {result.chunk_id})")
+        except Exception as e:
+            st.error(f"Failed to save: {e}")
+
     if "rag_system" not in st.session_state:
         with st.spinner("🔧 Loading RAG system... (this may take a moment)"):
             (
@@ -518,6 +709,7 @@ def main():
                 st.session_state.router,
                 st.session_state.vector_store,
                 st.session_state.event_loop,
+                st.session_state.learner,
             ) = initialize_rag_system()
         st.success("✅ RAG system loaded!")
 
@@ -546,6 +738,27 @@ def main():
                     info_parts.append(f"📚 Prerequisites: {', '.join(message['prerequisites_used'])}")
                 if info_parts:
                     st.caption(" | ".join(info_parts))
+
+                # Learning feature: Feedback buttons for low-confidence responses
+                if message.get("low_confidence") and not message.get("saved_to_kb"):
+                    msg_idx = st.session_state.messages.index(message)
+                    col1, col2, col3 = st.columns([1, 1, 4])
+                    with col1:
+                        if st.button("👍 Save to KB", key=f"save_{msg_idx}", help="Save this answer to improve future responses"):
+                            st.session_state.pending_save = {
+                                "question": message.get("original_question", ""),
+                                "answer": message["content"],
+                                "topic": message.get("detected_topic"),
+                                "scores": message.get("source_scores", []),
+                                "msg_idx": msg_idx,
+                            }
+                            st.rerun()
+                    with col2:
+                        if st.button("👎 Dismiss", key=f"dismiss_{msg_idx}", help="Don't save this answer"):
+                            st.session_state.messages[msg_idx]["low_confidence"] = False
+                            st.rerun()
+                elif message.get("saved_to_kb"):
+                    st.success("✅ Saved to knowledge base")
             else:
                 st.markdown(message["content"])
 
@@ -585,6 +798,11 @@ def main():
                     for m in st.session_state.messages[:-1]  # All except current
                 ]
 
+                # Check if a specific model is selected (override auto routing)
+                llm_override = None
+                if st.session_state.get("selected_model"):
+                    llm_override = create_llm_for_model(st.session_state.selected_model)
+
                 # Query RAG system with conversation context
                 response = query_rag_sync(
                     st.session_state.rag_system,
@@ -592,10 +810,14 @@ def main():
                     temperature,
                     st.session_state.event_loop,
                     conversation_history=history if history else None,
+                    llm_override=llm_override,
                 )
 
                 # Get model used
-                model_used = st.session_state.router.last_model_used
+                if st.session_state.get("selected_model"):
+                    model_used = st.session_state.selected_model
+                else:
+                    model_used = st.session_state.router.last_model_used
 
                 # Fix LaTeX rendering and display answer
                 fixed_answer = fix_latex_rendering(response.answer)
@@ -622,7 +844,7 @@ def main():
                     info_parts.append(f"📚 Prerequisites: {', '.join(response.prerequisites_used)}")
                 st.caption(" | ".join(info_parts))
 
-                # Save assistant response
+                # Save assistant response with learning metadata FIRST (before buttons)
                 sources_info = [
                     {
                         "pdf": source.metadata.get("source", "Unknown"),
@@ -632,6 +854,10 @@ def main():
                     }
                     for source in response.sources
                 ]
+
+                # Generate unique message ID for feedback tracking
+                msg_id = len(st.session_state.messages)
+
                 st.session_state.messages.append(
                     {
                         "role": "assistant",
@@ -640,8 +866,32 @@ def main():
                         "model": model_used,
                         "detected_topic": response.detected_topic,
                         "prerequisites_used": response.prerequisites_used,
+                        "low_confidence": response.low_confidence,
+                        "source_scores": response.source_scores,
+                        "original_question": cleaned_prompt,
+                        "msg_id": msg_id,
+                        "saved_to_kb": False,
                     }
                 )
+
+                # Learning feature: Show feedback buttons for low-confidence responses
+                if response.low_confidence:
+                    st.info("💡 **Low retrieval confidence** - If this answer is helpful, you can save it to improve future responses.")
+                    col1, col2, col3 = st.columns([1, 1, 4])
+                    with col1:
+                        if st.button("👍 Save to KB", key=f"save_new_{msg_id}", help="Save this answer to improve future responses"):
+                            st.session_state.pending_save = {
+                                "question": cleaned_prompt,
+                                "answer": response.answer,
+                                "topic": response.detected_topic,
+                                "scores": response.source_scores,
+                                "msg_idx": msg_id,
+                            }
+                            st.rerun()
+                    with col2:
+                        if st.button("👎 Dismiss", key=f"dismiss_new_{msg_id}", help="Don't save this answer"):
+                            st.session_state.messages[msg_id]["low_confidence"] = False
+                            st.rerun()
 
     # Footer
     st.divider()

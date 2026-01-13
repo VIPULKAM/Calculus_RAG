@@ -27,6 +27,8 @@ class RAGResponse:
         detected_topic: The main topic detected from the query.
         prerequisites_used: Prerequisite topics that were searched.
         confidence: Optional confidence score for the answer.
+        low_confidence: True if retrieval scores were below threshold.
+        source_scores: List of retrieval scores for learning decisions.
     """
 
     answer: str
@@ -35,6 +37,8 @@ class RAGResponse:
     detected_topic: str | None = None
     prerequisites_used: list[str] | None = None
     confidence: float | None = None
+    low_confidence: bool = False
+    source_scores: list[float] | None = None
 
 
 class RAGPipeline:
@@ -113,6 +117,7 @@ Remember: Your goal is to help students understand, not just provide answers."""
         temperature: float = 0.7,
         detect_prerequisites: bool = False,
         conversation_history: list[dict] | None = None,
+        llm_override: "BaseLLM | None" = None,
     ) -> RAGResponse:
         """
         Answer a question using retrieval-augmented generation.
@@ -124,6 +129,7 @@ Remember: Your goal is to help students understand, not just provide answers."""
             detect_prerequisites: Whether to detect missing prerequisites.
             conversation_history: Optional list of previous messages for context.
                 Each message should have 'role' ('user' or 'assistant') and 'content'.
+            llm_override: Optional LLM to use instead of the default (for manual model selection).
 
         Returns:
             RAGResponse: The answer with sources and metadata.
@@ -178,7 +184,9 @@ Remember: Your goal is to help students understand, not just provide answers."""
             ),
         )
 
-        llm_response = self.llm.generate(messages, temperature=temperature)
+        # Use override LLM if provided, otherwise use default
+        llm_to_use = llm_override if llm_override is not None else self.llm
+        llm_response = llm_to_use.generate(messages, temperature=temperature)
         answer = llm_response.content
 
         # Step 4: Detect prerequisites (optional)
@@ -186,12 +194,21 @@ Remember: Your goal is to help students understand, not just provide answers."""
         if detect_prerequisites:
             prerequisites = await self._detect_prerequisites(question, sources)
 
+        # Step 5: Calculate confidence metrics for learning feature
+        # Threshold aligned with retrieval min_score (0.45)
+        # Hybrid search can produce 0.5 for pure keyword matches, which is valid
+        source_scores = [s.score for s in sources] if sources else []
+        max_score = max(source_scores) if source_scores else 0.0
+        low_confidence = max_score < 0.45 or len(sources) == 0
+
         return RAGResponse(
             answer=answer,
             sources=sources,
             prerequisites_detected=prerequisites,
             detected_topic=detected_topic,
             prerequisites_used=prerequisites_used,
+            low_confidence=low_confidence,
+            source_scores=source_scores,
         )
 
     async def query_stream(

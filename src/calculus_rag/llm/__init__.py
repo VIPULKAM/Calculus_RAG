@@ -4,6 +4,7 @@ from calculus_rag.llm.base import BaseLLM, LLMMessage, LLMResponse
 from calculus_rag.llm.model_router import (
     ComplexityLevel,
     ModelRouter,
+    QueryDomain,
 )
 from calculus_rag.llm.ollama_llm import OllamaLLM
 
@@ -14,4 +15,5 @@ __all__ = [
     "OllamaLLM",
     "ModelRouter",
     "ComplexityLevel",
+    "QueryDomain",
 ]

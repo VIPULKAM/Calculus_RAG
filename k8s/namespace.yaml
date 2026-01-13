@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: calculus-rag
+  labels:
+    app.kubernetes.io/name: calculus-rag
+    app.kubernetes.io/part-of: calculus-rag
